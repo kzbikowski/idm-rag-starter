@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 STRUCTURED_OUTPUT_MODES = ("auto", "native", "tool", "prompt")
-CHUNKING_STRATEGIES = ("fixed", "recursive")
+CHUNKING_STRATEGIES = ("fixed", "recursive", "structure")
 
 
 def _env(name: str, default: str) -> str:
@@ -75,6 +75,17 @@ class Settings:
         """Czy LLM działa lokalnie (wtedy `make check` sprawdza też Ollamę i pobrane modele)."""
         host = urlparse(self.llm_base_url).hostname
         return host in ("localhost", "127.0.0.1")
+
+
+def parse_filters(text: str) -> dict[str, str]:
+    """„version=aktualna,doc_type=regulamin” → {"version": "aktualna", "doc_type": "regulamin"}."""
+    filters: dict[str, str] = {}
+    for part in filter(None, (p.strip() for p in text.split(","))):
+        key, sep, value = part.partition("=")
+        if not sep:
+            raise ValueError(f"Filtr {part!r} musi mieć postać pole=wartość")
+        filters[key.strip()] = value.strip()
+    return filters
 
 
 def load_settings(env_file: str | None = ".env") -> Settings:

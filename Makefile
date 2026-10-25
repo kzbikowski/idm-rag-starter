@@ -1,7 +1,7 @@
 # Cienkie wrappery na `uv run rag ...` – na Windowsie bez make wpisz komendę z prawej strony.
 # Dodatkowe argumenty: make ingest ARGS="--chunking fixed --recreate"
 
-.PHONY: help setup pull up down check ingest ask agent eval test lint reset-cache
+.PHONY: help setup pull up down check ingest ask agent eval test lint reset-cache fetch-data ingest-regulamin eval-regulamin
 
 DATA ?=
 Q ?=
@@ -13,6 +13,9 @@ help: ## lista komend
 setup: ## instaluje zależności (uv) i tworzy .env
 	uv sync
 	@test -f .env || (cp .env.example .env && echo "Utworzono .env z .env.example")
+
+fetch-data: ## pobiera dokumenty z data/raw/manifest.json
+	uv run python scripts/fetch_data.py $(ARGS)
 
 pull: ## pobiera modele Ollamy z .env
 	./scripts/pull_models.sh
@@ -29,6 +32,14 @@ check: ## smoke test: Ollama, modele, Qdrant, embedding, RAG, tool calling
 
 ingest: ## indeksuje dokumenty z DATA_DIR (.env) albo DATA=ścieżka
 	uv run rag ingest $(DATA) $(ARGS)
+
+ingest-regulamin: ## przykład: kolekcje regulamin_structure i regulamin_fixed (od zera)
+	uv run rag ingest data/raw --chunking structure --collection regulamin_structure --recreate
+	uv run rag ingest data/raw --chunking fixed --collection regulamin_fixed --recreate
+
+eval-regulamin: ## przykład: eval obu kolekcji na złotym zbiorze regulaminu (ARGS=--generate)
+	uv run rag eval --golden eval/golden_regulamin.jsonl --collection regulamin_structure $(ARGS)
+	uv run rag eval --golden eval/golden_regulamin.jsonl --collection regulamin_fixed $(ARGS)
 
 ask: ## pytanie RAG: make ask Q="..."
 	@test -n "$(Q)" || (echo 'Użycie: make ask Q="Twoje pytanie"' && exit 1)
@@ -47,5 +58,5 @@ test: ## testy jednostkowe (bez sieci)
 	uv run pytest -q
 
 lint: ## ruff
-	uv run ruff check src tests
-	uv run ruff format --check src tests
+	uv run ruff check src tests scripts
+	uv run ruff format --check src tests scripts

@@ -1,0 +1,27 @@
+{
+  "documents": [
+    {
+      "file": "regulamin_pw.pdf",
+      "title": "Regulamin studiów w Politechnice Warszawskiej obowiązujący od 1 października 2026 r.",
+      "url": "https://www.bip.pw.edu.pl/content/download/82321/771720/file/Regulamin%20Pl%20od%2001%2010%202026_ostateczny.pdf",
+      "source_page": "https://www.bip.pw.edu.pl/Sprawy-Studenckie/Regulamin-studiow-w-Politechnice-Warszawskiej2",
+      "doc_type": "regulamin",
+      "version": "aktualna",
+      "valid_from": "2026-10-01",
+      "label": "Regulamin studiów PW (od 1.10.2026)",
+      "sha256": "7ed0d3ec079afb40866979df07a2615c63e12e35c607889a0cdb618dd1b516e2"
+    },
+    {
+      "file": "przepisy_przejsciowe_2026.pdf",
+      "title": "Przepisy przejściowe do Regulaminu studiów w PW obowiązujące od 1 października 2026 r.",
+      "url": "https://www.bip.pw.edu.pl/content/download/82360/771978/file/Przepisy%20przej%C5%9Bciowe%20do%20Regulaminu%20studi%C3%B3w%20w%20PW%20obowi%C4%85zuj%C4%85ce%20od%201%20pa%C5%BAdziernika%202026_ENG_ostateczna.pdf",
+      "source_page": "https://www.bip.pw.edu.pl/Sprawy-Studenckie/Regulamin-studiow-w-Politechnice-Warszawskiej2",
+      "doc_type": "przepisy_przejsciowe",
+      "version": "aktualna",
+      "valid_from": "2026-10-01",
+      "label": "Przepisy przejściowe (od 1.10.2026)",
+      "sha256": "2a093aeb083e197a072823b1fa45595b9c8b97cd39446625b7da6bff19e65286",
+      "text_file": "data/transcriptions/przepisy_przejsciowe_2026.txt"
+    }
+  ]
+}

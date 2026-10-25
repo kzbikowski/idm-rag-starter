@@ -23,6 +23,7 @@ Metryki generacji (`--generate`):
 from __future__ import annotations
 
 import json
+import re
 import statistics
 import time
 from dataclasses import asdict, dataclass, field
@@ -70,6 +71,18 @@ def reciprocal_rank(retrieved: list[list[str]], relevant: list[str]) -> float:
     return 0.0
 
 
+def to_level(source_ids: list[str], level: str) -> list[str]:
+    """Sprowadza identyfikatory do wybranej granulacji.
+
+    `level="paragraph"`: `plik#§36.2` → `plik#§36` (ustęp liczy się jako trafienie w cały §).
+    Przydatne przy porównaniu chunkingu: duży chunk fixed-size „zahacza” o kilka ustępów naraz,
+    co na poziomie ustępów zawyża jego recall.
+    """
+    if level == "source":
+        return list(dict.fromkeys(source_ids))
+    return list(dict.fromkeys(re.sub(r"(#§\d+[a-z]?)\..*$", r"\1", sid) for sid in source_ids))
+
+
 # --------------------------------------------------------------------------- przebieg
 
 
@@ -79,8 +92,14 @@ def evaluate(
     ks: tuple[int, ...] = (1, 3, 5),
     generate: bool = False,
     collection: str | None = None,
+    level: str = "source",
 ) -> dict[str, Any]:
-    """Liczy metryki dla całego złotego zbioru. Zwraca słownik z wynikami per pytanie i średnimi."""
+    """Liczy metryki dla całego złotego zbioru. Zwraca słownik z wynikami per pytanie i średnimi.
+
+    Args:
+        level: "source" – identyfikatory jak w złotym zbiorze (np. ustęp `§36.2`);
+            "paragraph" – porównanie na poziomie paragrafu (`§36`), patrz `to_level`.
+    """
     max_k = max(ks)
     rows: list[dict[str, Any]] = []
     for item in items:
@@ -90,7 +109,8 @@ def evaluate(
             result = answer_question(
                 item.question, settings, k=settings.top_k, collection=collection
             )
-            cited = {sid for h in result.cited_hits() for sid in h.source_ids}
+            cited = set(to_level([sid for h in result.cited_hits() for sid in h.source_ids], level))
+            gold = set(to_level(item.source_ids, level))
             row |= {
                 "answer": result.answer.answer,
                 "citations": result.cited_numbers,
@@ -98,16 +118,17 @@ def evaluate(
                 "structured_mode": result.mode,
                 # Odmowa poprawna, gdy pytanie jest spoza dokumentów (pusty source_ids).
                 "refusal_ok": result.answered_from_context == bool(item.source_ids),
-                "citation_hit": bool(cited & set(item.source_ids)) if item.source_ids else None,
+                "citation_hit": bool(cited & gold) if item.source_ids else None,
                 # Czy odpowiedź ma znaczniki [n] w tekście (tylko dla pytań z odpowiedzią).
                 "inline_cited": result.has_inline_citations if item.source_ids else None,
             }
         row["ctx_chars"] = sum(len(h.text) for h in hits[: settings.top_k])
         if item.source_ids:
-            retrieved = [h.source_ids for h in hits]
+            retrieved = [to_level(h.source_ids, level) for h in hits]
+            relevant = to_level(item.source_ids, level)
             for k in ks:
-                row[f"recall@{k}"] = recall_at_k(retrieved, item.source_ids, k)
-            row["mrr"] = reciprocal_rank(retrieved, item.source_ids)
+                row[f"recall@{k}"] = recall_at_k(retrieved, relevant, k)
+            row["mrr"] = reciprocal_rank(retrieved, relevant)
         rows.append(row)
     return {"rows": rows, "summary": summarize(rows, ks)}
 

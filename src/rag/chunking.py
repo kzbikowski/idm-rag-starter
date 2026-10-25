@@ -4,6 +4,8 @@ Dwie strategie:
 - `fixed`: okno o stałej długości (w znakach) z overlapem – najprostsze, ignoruje strukturę;
 - `recursive`: dzieli kolejno po akapitach, liniach, zdaniach, słowach, aż fragment zmieści się
   w limicie, a potem skleja małe kawałki – zachowuje naturalne granice tekstu.
+Trzecia strategia, `structure` (rozdział → § → ustęp), jest w `legal.py` i działa tylko dla aktów
+prawnych z manifestu.
 
 Długość mierzymy w znakach, nie w tokenach (prościej; dla polskiego ~1 token ≈ 3–4 znaki).
 """

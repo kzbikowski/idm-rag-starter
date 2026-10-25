@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from rag.config import Settings
+from rag.legal import citation
 from rag.llm import llm_client
 from rag.retrieve import Hit, retrieve
 from rag.structured import complete_structured
@@ -121,6 +122,35 @@ class RagResult:
         return [(i, h) for i, h in enumerate(self.hits, start=1) if i not in cited]
 
 
+def short_citation(hit: Hit) -> str | None:
+    """Krótkie cytowanie do tekstu odpowiedzi: „§ 12 ust. 3”, „przepisy przejściowe pkt 2”.
+    None dla dokumentów bez struktury prawnej."""
+    m = hit.metadata
+    cite = citation(m)
+    if cite is None:
+        return None
+    if m.get("doc_type") == "przepisy_przejsciowe":
+        cite = f"przepisy przejściowe {cite}"
+    return cite
+
+
+def render_answer(result: RagResult) -> str:
+    """Zamienia znaczniki [n] na cytowania paragrafów, np. „[2]” → „[§ 12 ust. 3]”.
+
+    Robimy to w kodzie, a nie w prompcie: numer [n] model przepisuje z kontekstu niezawodnie,
+    a pełne „§ 12 ust. 3” mógłby przekręcić.
+    """
+
+    def repl(match: re.Match[str]) -> str:
+        n = int(match.group(1))
+        if not 1 <= n <= len(result.hits):
+            return match.group(0)
+        cite = short_citation(result.hits[n - 1])
+        return f"[{cite}]" if cite else match.group(0)
+
+    return _MARKER.sub(repl, result.answer.answer)
+
+
 def format_context(hits: list[Hit]) -> str:
     """Kontekst dla modelu: ponumerowane fragmenty z etykietą źródła."""
     return "\n\n".join(f"[{i}] ({hit.label()})\n{hit.text}" for i, hit in enumerate(hits, start=1))
@@ -133,11 +163,15 @@ def build_messages(question: str, hits: list[Hit]) -> list[dict[str, str]]:
 
 
 def answer_question(
-    question: str, settings: Settings, k: int | None = None, collection: str | None = None
+    question: str,
+    settings: Settings,
+    k: int | None = None,
+    collection: str | None = None,
+    filters: dict[str, Any] | None = None,
 ) -> RagResult:
     """Retrieval top-k + generacja odpowiedzi ze structured output."""
     t0 = time.perf_counter()
-    hits = retrieve(question, settings, k=k, collection=collection)
+    hits = retrieve(question, settings, k=k, collection=collection, filters=filters)
     t1 = time.perf_counter()
     answer, mode = complete_structured(
         llm_client(settings), settings, build_messages(question, hits), Answer

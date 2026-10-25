@@ -63,7 +63,7 @@ def ensure_collection(client: QdrantClient, name: str, dim: int, recreate: bool 
     # Tryb lokalny ich nie obsługuje (filtruje bez indeksu), więc tam je pomijamy.
     if client.init_options.get("path") or client.init_options.get("location") == ":memory:":
         return
-    for field_name in ("source", "chunking"):
+    for field_name in ("source", "chunking", "version", "doc_type"):
         client.create_payload_index(name, field_name, models.PayloadSchemaType.KEYWORD)
 
 

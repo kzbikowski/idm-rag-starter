@@ -6,6 +6,7 @@ sekcja dla Markdowna). Chunking dzieli bloki dalej, zachowując ich metadane.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -15,9 +16,10 @@ from typing import Any
 
 from pypdf import PdfReader
 
-from rag.chunking import Block, Chunk, chunk_blocks
+from rag.chunking import Block, Chunk, chunk_blocks, fixed_size, recursive_split
 from rag.config import Settings
 from rag.embeddings import embed_documents
+from rag.legal import LEGAL_DOC_TYPES, build_stream, span_chunks, structure_chunks
 from rag.normalize import basic_clean, join_split_words, word_counts
 from rag.store import ensure_collection, get_client, upsert_chunks
 
@@ -68,12 +70,32 @@ def load_file(path: Path) -> list[Block]:
     return loaders[path.suffix.lower()](path)
 
 
+MANIFEST_NAME = "manifest.json"
+# Pola z manifestu kopiowane do payloadu każdego chunka (np. do metadata filtering).
+MANIFEST_FIELDS = ("doc_type", "version", "valid_from")
+
+
+def load_manifest(directory: Path) -> dict[str, dict[str, Any]]:
+    """`manifest.json` z katalogu (nazwa pliku → wpis); pusty słownik, gdy brak manifestu."""
+    path = directory / MANIFEST_NAME
+    if not path.exists():
+        return {}
+    documents = json.loads(path.read_text(encoding="utf-8"))["documents"]
+    return {doc["file"]: doc for doc in documents}
+
+
 def discover_files(paths: list[Path]) -> list[Path]:
-    """Rozwija katalogi do listy obsługiwanych plików (rekurencyjnie, posortowane)."""
+    """Rozwija katalogi do listy obsługiwanych plików (rekurencyjnie, posortowane).
+
+    Pliki wymienione w manifeście, których brakuje na dysku, są pomijane z ostrzeżeniem.
+    """
     files: list[Path] = []
     for p in paths:
         if p.is_dir():
             files += sorted(f for f in p.rglob("*") if f.suffix.lower() in SUPPORTED_SUFFIXES)
+            for name in load_manifest(p):
+                if not (p / name).exists():
+                    log.warning("Pomijam brakujący plik z manifestu: %s (make fetch-data)", name)
         elif p.exists():
             files.append(p)
         else:
@@ -109,17 +131,58 @@ def normalize_blocks(blocks: list[Block]) -> list[Block]:
     ]
 
 
+def document_metadata(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Metadane dokumentu z manifestu: (pola do payloadu, pełny wpis manifestu)."""
+    entry = load_manifest(path.parent).get(path.name, {})
+    meta: dict[str, Any] = {"source": path.name}
+    meta |= {k: entry[k] for k in MANIFEST_FIELDS if k in entry}
+    if "label" in entry:
+        meta["doc_label"] = entry["label"]
+    return meta, entry
+
+
+def load_document(path: Path, entry: dict[str, Any]) -> list[Block]:
+    """Bloki dokumentu; `text_file` z manifestu zastępuje PDF bez warstwy tekstowej."""
+    if text_file := entry.get("text_file"):
+        text = Path(text_file).read_text(encoding="utf-8")
+        return [Block(text, {"source": path.name, "page": 1})]
+    return load_file(path)
+
+
+def chunk_legal(
+    blocks: list[Block], meta: dict[str, Any], strategy: str, settings: Settings
+) -> list[Chunk]:
+    """Akty prawne: wspólny tekst i jednostki (§, ust.) dla wszystkich strategii chunkingu."""
+    doc = build_stream(blocks)
+    if strategy == "structure":
+        return structure_chunks(doc, meta, max_chars=int(settings.chunk_size * 1.5))
+    split = fixed_size if strategy == "fixed" else recursive_split
+    texts = split(doc.text, settings.chunk_size, settings.chunk_overlap)
+    return span_chunks(doc, meta, texts, strategy)
+
+
 def build_chunks(paths: list[Path], settings: Settings, strategy: str | None = None) -> list[Chunk]:
     """Wczytuje pliki i zwraca chunki gotowe do embeddingu (bez wywołań sieciowych)."""
     strategy = strategy or settings.chunking
     chunks: list[Chunk] = []
     for path in discover_files(paths):
-        blocks = normalize_blocks(load_file(path))
-        for b in blocks:
-            b.metadata["source_ids"] = source_ids_for(b.metadata)
-        file_chunks = chunk_blocks(
-            blocks, strategy, size=settings.chunk_size, overlap=settings.chunk_overlap
-        )
+        meta, entry = document_metadata(path)
+        blocks = normalize_blocks(load_document(path, entry))
+        if meta.get("doc_type") in LEGAL_DOC_TYPES:
+            file_chunks = chunk_legal(blocks, meta, strategy, settings)
+        else:
+            if strategy == "structure":
+                log.warning(
+                    "%s: chunking structure tylko dla aktów prawnych – używam recursive", path.name
+                )
+            for b in blocks:
+                b.metadata |= meta | {"source_ids": source_ids_for(b.metadata)}
+            file_chunks = chunk_blocks(
+                blocks,
+                "recursive" if strategy == "structure" else strategy,
+                size=settings.chunk_size,
+                overlap=settings.chunk_overlap,
+            )
         log.info(
             "%s: %d bloków → %d chunków (%s)", path.name, len(blocks), len(file_chunks), strategy
         )

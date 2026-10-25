@@ -36,10 +36,17 @@ def cmd_ingest(args: argparse.Namespace) -> None:
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
-    from rag.generate import answer_question, best_quote
+    from rag.config import parse_filters
+    from rag.generate import answer_question, best_quote, render_answer
 
-    result = answer_question(args.question, get_settings(), k=args.k, collection=args.collection)
-    console.print(Markdown(result.answer.answer))
+    result = answer_question(
+        args.question,
+        get_settings(),
+        k=args.k,
+        collection=args.collection,
+        filters=parse_filters(",".join(args.filter)),
+    )
+    console.print(Markdown(render_answer(result)))
     if result.answered_from_context:
         console.print("\n[bold]Źródła cytowane:[/]")
         for n in result.cited_numbers:
@@ -102,7 +109,9 @@ def cmd_eval(args: argparse.Namespace) -> None:
 
     settings = get_settings()
     items = load_golden(Path(args.golden))
-    results = evaluate(items, settings, generate=args.generate, collection=args.collection)
+    results = evaluate(
+        items, settings, generate=args.generate, collection=args.collection, level=args.level
+    )
     summary = results["summary"]
     # Kolumny = metryki policzone w tym przebiegu (bez --generate nie ma metryk odpowiedzi).
     metric_cols = [c for c in summary if c != "questions" and summary[c] is not None]
@@ -137,8 +146,16 @@ def cmd_eval(args: argparse.Namespace) -> None:
     console.print(f"[dim]{escape(legend)}[/]")
 
     label = f"{Path(args.golden).stem}_{args.collection or settings.collection}"
+    if args.level != "source":
+        label += f"_{args.level}"
     if args.generate:
         label += f"_{settings.llm_model.replace(':', '-').replace('/', '-')}"
+    results |= {
+        "golden": args.golden,
+        "collection": args.collection or settings.collection,
+        "level": args.level,
+        "generate": args.generate,
+    }
     path = save_results(results, settings, Path("eval/results"), label)
     console.print(f"[dim]Zapisano: {path}[/]")
 
@@ -176,6 +193,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-k", type=int, help="liczba chunków w kontekście (domyślnie TOP_K)")
     p.add_argument("--collection")
     p.add_argument("--show-context", action="store_true", help="pokaż pełny tekst chunków")
+    p.add_argument(
+        "--filter",
+        action="append",
+        default=[],
+        metavar="POLE=WARTOŚĆ",
+        help="filtr metadanych, np. --filter doc_type=regulamin (można powtarzać)",
+    )
     p.set_defaults(func=cmd_ask)
 
     p = sub.add_parser("agent", help="agent z narzędziem search_docs")
@@ -185,6 +209,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("eval", help="ewaluacja na złotym zbiorze")
     p.add_argument("--golden", default="eval/golden_sample.jsonl")
     p.add_argument("--generate", action="store_true", help="oceniaj też odpowiedzi (wolniej)")
+    p.add_argument(
+        "--level",
+        choices=("source", "paragraph"),
+        default="source",
+        help="granulacja source_ids: jak w złotym zbiorze albo na poziomie § (paragraph)",
+    )
     p.add_argument("--collection")
     p.set_defaults(func=cmd_eval)
 

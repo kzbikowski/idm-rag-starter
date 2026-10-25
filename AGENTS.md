@@ -21,12 +21,19 @@ cli.py ──► ingest.py ──► normalize.py ──► chunking.py ──�
    ├─► eval.py ─────► retrieve.py, generate.py
    └─► check.py ────► wszystko powyżej (smoke test)
 config.py – jedyne źródło ustawień (dataclass `Settings` z .env)
+legal.py  – akty prawne (doc_type z manifestu): tekst bez layoutu, jednostki § / ust., chunking „structure”
 ```
+
+Gałąź `example/regulamin`: korpus z `data/raw/manifest.json` (PDF-y poza gitem, `make fetch-data`).
+Manifest daje metadane `doc_type`, `version`, `valid_from`, `label` (filtrowanie: `rag ask --filter`). Przepisy przejściowe to PDF bez warstwy tekstowej – ingest czyta
+ręczną transkrypcję z `data/transcriptions/` (`text_file` w manifeście).
 
 Kluczowe kontrakty:
 - **Chunk payload** w Qdrancie: `text`, `source`, `page`|`section`, `source_ids` (lista), `chunking`,
-  `chunk_index`, `embed_model`. Wektor nazwany `dense` (miejsce na sparse `bm25`).
-- **`source_ids`** są niezależne od chunkingu (`plik.pdf#p3`, `plik.md#Sekcja`, `plik.txt`);
+  `chunk_index`, `embed_model`; dla aktów prawnych dodatkowo `chapter`, `paragraph`, `ustep`,
+  `unit_kind`, `doc_label`, `doc_type`, `version`, `valid_from`. Wektor nazwany `dense` (miejsce na sparse `bm25`).
+- **`source_ids`** są niezależne od chunkingu (`plik.pdf#p3`, `plik.md#Sekcja`, `plik.txt`;
+  akty prawne: `plik.pdf#§12`, `plik.pdf#§12.3`, przepisy przejściowe `plik.pdf#pkt2a`);
   złote zbiory w `eval/*.jsonl` się do nich odwołują. Zmiana formatu = aktualizacja złotych zbiorów.
 - **Cytowania**: model zwraca numery fragmentów kontekstu (`Answer.citations`), mapowanie na źródła
   robi kod (`RagResult.cited_hits`). Nie każ modelowi przepisywać nazw plików.

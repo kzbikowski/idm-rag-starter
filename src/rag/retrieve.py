@@ -13,6 +13,7 @@ from qdrant_client import models
 
 from rag.config import Settings
 from rag.embeddings import embed_query
+from rag.legal import citation
 from rag.store import get_client, search
 
 
@@ -31,7 +32,9 @@ class Hit:
     def label(self) -> str:
         """Czytelna etykieta źródła, np. `regulamin.pdf, s. 3` albo `notatki.md › Chunking`."""
         m = self.metadata
-        label = str(m.get("source", "?"))
+        if cite := citation(m):  # akt prawny: „Regulamin studiów PW (…) § 12 ust. 3, s. 16”
+            return f"{m.get('doc_label') or m.get('source')} {cite}, s. {m.get('page')}"
+        label = str(m.get("doc_label") or m.get("source", "?"))
         if m.get("page"):
             label += f", s. {m['page']}"
         if m.get("section"):
@@ -46,7 +49,7 @@ def retrieve(
     collection: str | None = None,
     filters: dict[str, Any] | None = None,
 ) -> list[Hit]:
-    """Zwraca top-k chunków najbardziej podobnych do zapytania."""
+    """Zwraca top-k chunków najbardziej podobnych do zapytania (opcjonalnie z filtrami metadanych)."""
     k = k or settings.top_k
     collection = collection or settings.collection
     client = get_client(settings.qdrant_url)
@@ -75,23 +78,16 @@ def _check_embed_model(hits: list[Hit], settings: Settings) -> None:
         )
 
 
-# =============================================================================== TODO
-# Poniższe funkcje są szkieletami do samodzielnej implementacji. Po każdej zmianie
-# uruchom `make eval` i porównaj recall@k / MRR z wersją bazową (eval/results/).
-
-
 def build_filter(filters: dict[str, Any] | None) -> models.Filter | None:
     """Zamienia słownik `{pole: wartość}` na filtr Qdranta (metadata filtering).
 
-    Zaimplementowany jest tylko najprostszy przypadek: równość dla pól tekstowych.
+    Zaimplementowany jest tylko najprostszy przypadek: równość, np. `rag ask "..." --filter
+    doc_type=przepisy_przejsciowe` – wszystkie źródła odpowiedzi pochodzą wtedy z przepisów.
 
     TODO(metadata-filtering):
     - listy wartości → `models.MatchAny(any=[...])`;
-    - zakresy (np. strony, daty) → `models.FieldCondition(key=..., range=models.Range(gte=...))`;
-    - flaga `--filter pole=wartość` w `cli.py` (komenda `ask`) przekazywana do `retrieve()`;
+    - zakresy (np. strony, daty `valid_from`) → `models.FieldCondition(key=..., range=...)`;
     - indeks payloadu dla nowych pól w `store.ensure_collection` (szybsze filtrowanie).
-    Jak sprawdzić: `make ask Q="..." ARGS="--filter source=rag_wprowadzenie.md"` – wszystkie
-    źródła w odpowiedzi muszą pochodzić z wybranego pliku.
     """
     if not filters:
         return None
@@ -101,6 +97,11 @@ def build_filter(filters: dict[str, Any] | None) -> models.Filter | None:
             for key, value in filters.items()
         ]
     )
+
+
+# =============================================================================== TODO
+# Poniższe funkcje są szkieletami do samodzielnej implementacji. Po każdej zmianie
+# uruchom `make eval` i porównaj recall@k / MRR z wersją bazową (eval/results/).
 
 
 def hybrid_search(query: str, settings: Settings, k: int) -> list[Hit]:

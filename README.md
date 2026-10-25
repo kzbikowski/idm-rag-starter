@@ -28,13 +28,14 @@ Minimalny, czytelny pipeline RAG, który uruchomisz lokalnie na laptopie:
 2. [Instalacja](#instalacja)
 3. [Okno kontekstu Ollamy – koniecznie przeczytaj](#okno-kontekstu-ollamy--koniecznie-przeczytaj)
 4. [Szybki start](#szybki-start)
-5. [Konfiguracja (.env)](#konfiguracja-env)
-6. [Structured output: trzy tryby](#structured-output-trzy-tryby)
-7. [Słabszy laptop: Gemini API](#słabszy-laptop-gemini-api)
-8. [Ewaluacja](#ewaluacja)
-9. [Co dalej (TODO)](#co-dalej-todo)
-10. [Struktura repozytorium](#struktura-repozytorium)
-11. [Troubleshooting](#troubleshooting)
+5. [Przykład: Regulamin studiów PW](#przykład-regulamin-studiów-pw-gałąź-exampleregulamin)
+6. [Konfiguracja (.env)](#konfiguracja-env)
+7. [Structured output: trzy tryby](#structured-output-trzy-tryby)
+8. [Słabszy laptop: Gemini API](#słabszy-laptop-gemini-api)
+9. [Ewaluacja](#ewaluacja)
+10. [Co dalej (TODO)](#co-dalej-todo)
+11. [Struktura repozytorium](#struktura-repozytorium)
+12. [Troubleshooting](#troubleshooting)
 
 ## Wymagania sprzętowe
 
@@ -125,6 +126,9 @@ make agent Q="Jaka jest różnica między chunkingiem fixed-size a recursive?"
 make eval      # recall@k i MRR na eval/golden_sample.jsonl
 ```
 
+Na gałęzi `example/regulamin` `.env.example` wskazuje korpus regulaminu – zamiast `make ingest`/`make eval`
+użyj komend z sekcji [Przykład](#przykład-regulamin-studiów-pw-gałąź-exampleregulamin).
+
 Własne dokumenty (PDF/MD/TXT) wrzuć do `data/raw/` i uruchom `make ingest ARGS=--recreate`.
 `make ingest` indeksuje katalog `DATA_DIR` z `.env` (domyślnie `data/`); jednorazowo inny katalog:
 `make ingest DATA=data/raw`.
@@ -154,6 +158,41 @@ retrieval 0.13s · generacja 7.15s · structured output: prompt
 Znaczniki `[n]` w tekście wstawia model; listę źródeł i cytaty („…”) buduje kod z metadanych
 i treści chunków – model nie może wymyślić nazwy pliku ani cytatu. „Pobrane, niecytowane” to chunki,
 które retrieval znalazł, ale model ich nie użył (warto je oglądać przy debugowaniu retrievalu).
+
+## Przykład: Regulamin studiów PW (gałąź `example/regulamin`)
+
+RAG nad Regulaminem studiów w Politechnice Warszawskiej z chunkingiem po strukturze dokumentu
+(rozdział → § → ustęp) i odpowiedziami cytującymi paragrafy („§ 12 ust. 3”).
+
+```bash
+git checkout example/regulamin
+cp .env.example .env            # DATA_DIR=data/raw, COLLECTION=regulamin_structure, CHUNKING=structure
+make fetch-data                 # pobiera PDF-y z BIP PW wg data/raw/manifest.json (nie są w gicie)
+make up && make ingest-regulamin  # kolekcje regulamin_structure i regulamin_fixed
+make ask Q="Ile razy mogę podchodzić do egzaminu poprawkowego?"
+make ask Q="..." ARGS="--collection regulamin_fixed"   # ten sam retrieval na chunkach fixed-size
+make ask Q="..." ARGS="--filter doc_type=przepisy_przejsciowe"  # metadata filtering
+make eval-regulamin ARGS=--generate                    # obie kolekcje, złoty zbiór regulaminu
+```
+
+**Korpus** (`data/raw/manifest.json`): regulamin obowiązujący od 1.10.2026 i przepisy przejściowe
+od 1.10.2026 (oba `version=aktualna`). Metadane z manifestu (`version`, `valid_from`, `doc_type`,
+`label`) trafiają do każdego chunka, więc można po nich filtrować (`--filter pole=wartość`).
+
+**Przepisy przejściowe** na BIP to PDF złożony z samych obrazów (tekst polski i angielski, bez warstwy
+tekstowej). Zamiast OCR ingest czyta ręczną transkrypcję polskiej części z
+`data/transcriptions/przepisy_przejsciowe_2026.txt` (pole `text_file` w manifeście).
+
+**Chunking po strukturze** (`src/rag/legal.py`): 1 chunk = 1 ustęp z nagłówkiem kontekstowym
+(`Regulamin › Rozdział III … › § 12 ust. 3`). Chunki fixed-size dostają `source_ids` ustępów, na które
+zachodzą, więc obie strategie porównujemy tymi samymi metrykami (`--level paragraph` liczy je per §).
+
+Wyniki porównania (fixed vs po paragrafach, qwen3.5:4b vs 9b): [eval/results/comparison.md](eval/results/comparison.md).
+Demo krok po kroku (komendy, pytania, wyniki, wnioski): [docs/demo.md](docs/demo.md).
+
+**Znane ograniczenia ekstrakcji PDF**: część wyjustowanych linii ma rozstrzelone litery bez wyraźnych
+granic słów (np. „orazopisane”, „Praktyki za w od owe”); normalizacja (`src/rag/normalize.py`) naprawia
+większość przypadków, ale nie wszystkie.
 
 ## Konfiguracja (.env)
 
@@ -242,7 +281,7 @@ W `src/rag/retrieve.py` są szkielety z opisem krok po kroku – po każdej zmia
 |------|-------|------|
 | `TODO(hybrid)` | `hybrid_search()`, `store.py` | dense + sparse BM25 (FastEmbed `Qdrant/bm25`), fuzja RRF w Qdrant Query API (`uv add fastembed`) |
 | `TODO(reranking)` | `rerank()` | cross-encoder `BAAI/bge-reranker-v2-m3` na top-20 kandydatach |
-| `TODO(metadata-filtering)` | `build_filter()` | filtry po metadanych (`MatchAny`, zakresy, flaga `--filter`) |
+| `TODO(metadata-filtering)` | `build_filter()` | jest równość (`--filter pole=wartość`); dopisz `MatchAny`, zakresy (`valid_from`), indeksy |
 | `TODO(query-rewriting)` | `rewrite_query()` | przepisanie pytania / multi-query / HyDE |
 
 ## Struktura repozytorium
