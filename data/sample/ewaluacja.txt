@@ -1,0 +1,13 @@
+Ewaluacja systemu RAG
+
+Bez pomiaru nie wiadomo, czy zmiana (inny chunking, inny model, reranking) cokolwiek poprawiła.
+Podstawą jest złoty zbiór: lista pytań z oczekiwaną odpowiedzią i identyfikatorami źródeł,
+w których ta odpowiedź się znajduje. Złoty zbiór warto przygotować ręcznie i zweryfikować.
+
+Retrieval oceniamy niezależnie od generacji. Recall@k mówi, jaka część oczekiwanych źródeł
+znalazła się wśród k najlepszych chunków. MRR (Mean Reciprocal Rank) nagradza system za to,
+że trafny chunk jest wysoko: za trafienie na pierwszym miejscu daje 1, na drugim 0,5, na trzecim 0,33.
+
+Generację oceniamy m.in. przez trafność cytowań oraz poprawność odmów: dla pytań spoza dokumentów
+model powinien odpowiedzieć, że nie zna odpowiedzi. Aby wyniki były powtarzalne, ewaluację
+uruchamiamy z temperature=0.

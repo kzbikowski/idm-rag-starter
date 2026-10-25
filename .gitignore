@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.qdrant/
+.cache/
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/manifest.json
+eval/results/*
+!eval/results/.gitkeep
+.DS_Store
+# Notatki prowadzącego (nie dla studentów)
+instructor/
